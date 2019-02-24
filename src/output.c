@@ -29,6 +29,7 @@
 #include <timevar.h>
 #include <wait-process.h>
 
+#include "chain.h" /* chain_leaf */
 #include "complain.h"
 #include "files.h"
 #include "getargs.h"
@@ -238,7 +239,7 @@ prepare_rules (void)
       /* Line where rule was defined. */
       rline[r] = rules[r].location.start.line;
       /* LHS of the rule R. */
-      r1[r] = rules[r].lhs->number;
+      r1[r] = chain_leaf (rules[r].lhs->number);
       /* Length of rule R's RHS. */
       r2[r] = rule_rhs_length (&rules[r]);
       /* Dynamic precedence (GLR).  */

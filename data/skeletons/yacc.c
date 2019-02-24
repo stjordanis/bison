@@ -1726,11 +1726,22 @@ yyreduce:
      that goes to, based on the state we popped back to and the rule
      number reduced by.  */
   {
-    const int yylhs = yyr1[yyn] - YYNTOKENS;
-    const int yyi = yypgoto[yylhs] + *yyssp;
-    yystate = (0 <= yyi && yyi <= YYLAST && yycheck[yyi] == *yyssp
-               ? yytable[yyi]
-               : yydefgoto[yylhs]);
+    const int yylhs = yyr1[yyn];
+    if (yylhs < YYNTOKENS)
+      {
+        yystate = *yyssp;
+        const int yyi = yypact[yystate] + yylhs;
+        if (yyi < 0 || YYLAST < yyi || yycheck[yyi] != yylhs)
+          goto yydefault;
+        yystate = yytable[yyi];
+      }
+    else
+      {
+        const int yyi = yypgoto[yylhs - YYNTOKENS] + *yyssp;
+        yystate = (0 <= yyi && yyi <= YYLAST && yycheck[yyi] == *yyssp
+                   ? yytable[yyi]
+                   : yydefgoto[yylhs - YYNTOKENS]);
+      }
   }
 
   goto yynewstate;

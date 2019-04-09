@@ -32,6 +32,7 @@
 #include <quote.h>
 #include <textstyle.h>
 
+#include "chain.h"
 #include "complain.h"
 #include "files.h"
 #include "muscle-tab.h"
@@ -236,6 +237,7 @@ static const char * const feature_args[] =
 {
   "none",
   "caret", "diagnostics-show-caret",
+  "chain", "eliminate-chain-reductions",
   "fixit", "diagnostics-parseable-fixits",
   "syntax-only",
   "all",
@@ -246,6 +248,7 @@ static const int feature_types[] =
 {
   feature_none,
   feature_caret, feature_caret,
+  feature_eliminate_chains, feature_eliminate_chains,
   feature_fixit_parsable, feature_fixit_parsable,
   feature_syntax_only,
   feature_all

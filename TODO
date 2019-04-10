@@ -100,8 +100,11 @@ See above.
 
 ** clean up
 *** lalr.c
-Introduce a goto struct, and use it in place of from_state/to_state.
+Introduce a goto struct, and use it in place of from_state/to_state.  Also,
+clean up the memory clean up: it's done in ielr.c. and in table.c.
+
 Rename states1 as path, length as pathlen.
+
 Introduce inline functions for things such as nullable[*rp - ntokens]
 where we need to map from symbol number to nterm number.
 

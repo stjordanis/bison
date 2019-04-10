@@ -30,6 +30,7 @@
 
 #include "chain.h"
 #include "complain.h"
+#include "closure.h"
 #include "derives.h"
 #include "getargs.h"
 #include "gram.h"
@@ -46,6 +47,7 @@ goto_number *goto_map = NULL;
 goto_number ngotos = 0;
 state_number *from_state = NULL;
 state_number *to_state = NULL;
+symbol_number *on_label = NULL;
 bitsetv goto_follows = NULL;
 
 /* Linked list of goto numbers.  */
@@ -91,9 +93,8 @@ goto_print (goto_number i, FILE *out)
 {
   const state_number src = from_state[i];
   const state_number dst = to_state[i];
-  symbol_number var = states[dst]->accessing_symbol;
-  fprintf (out,
-           "goto[%ld] = (%d, %s, %d)", i, src, symbols[var]->tag, dst);
+  const char *lbl = symbols[on_label[i]]->tag;
+  fprintf (out, "goto[%ld] = (%d, %s, %d)", i, src, lbl, dst);
 }
 
 void
@@ -112,15 +113,21 @@ set_goto_map (void)
         }
       for (int i = trans->num - 1; 0 <= i; --i)
         if (transition_is_goto (trans, i))
-        {
-          ngotos++;
-          if (trace_flag & trace_automaton)
-            fprintf (stderr, "Accepting %d on %s\n",
-                     i, symbols[goto_symbol (trans, i)]->tag);
-          /* Abort if (ngotos + 1) would overflow.  */
-          aver (ngotos != GOTO_NUMBER_MAXIMUM);
-          goto_map[goto_symbol (trans, i) - ntokens]++;
-        }
+          {
+            const symbol_number label = TRANSITION_SYMBOL (trans, i);
+            for (symbol_number anc = 0; anc < nsyms; ++anc)
+              if (bitset_test (descendants[anc], label)
+                  && !ISTOKEN (anc))
+                {
+                  ngotos++;
+                  if (trace_flag & trace_automaton)
+                    fprintf (stderr, "Accepting %d on %s\n",
+                             i, symbols[anc]->tag);
+                  /* Abort if (ngotos + 1) would overflow.  */
+                  aver (ngotos != GOTO_NUMBER_MAXIMUM);
+                  goto_map[anc - ntokens]++;
+                }
+          }
     }
 
   goto_number *temp_map = xnmalloc (nvars + 1, sizeof *temp_map);
@@ -140,6 +147,7 @@ set_goto_map (void)
   }
 
   from_state = xcalloc (ngotos, sizeof *from_state);
+  on_label = xcalloc (ngotos, sizeof *on_label);
   to_state = xcalloc (ngotos, sizeof *to_state);
 
   for (state_number s = 0; s < nstates; ++s)
@@ -148,9 +156,16 @@ set_goto_map (void)
       for (int i = trans->num - 1; 0 <= i; --i)
         if (transition_is_goto (trans, i))
         {
-          goto_number k = temp_map[goto_symbol (trans, i) - ntokens]++;
-          from_state[k] = s;
-          to_state[k] = trans->states[i]->number;
+          const symbol_number label = TRANSITION_SYMBOL (trans, i);
+          for (symbol_number anc = 0; anc < nsyms; ++anc)
+            if (bitset_test (descendants[anc], label)
+                && !ISTOKEN (anc))
+              {
+                goto_number k = temp_map[anc - ntokens]++;
+                from_state[k] = s;
+                on_label[k] = anc;
+                to_state[k] = trans->states[i]->number;
+              }
         }
     }
 
@@ -176,15 +191,10 @@ map_goto (state_number src, symbol_number sym)
       /* Look from a goto from SRC whose label is a descendant of
          SYM. */
       for (goto_number i = 0; i < ngotos; ++i)
-        if (from_state[i] == src)
+        if (from_state[i] == src && on_label[i] == sym)
           {
-            state_number dst = to_state[i];
-            symbol_number label = states[dst]->accessing_symbol;
-            if (bitset_test (descendants[sym], label))
-              {
-                res = i;
-                break;
-              }
+            res = i;
+            break;
           }
     }
   else
@@ -244,11 +254,40 @@ initialize_goto_follows (void)
   for (goto_number i = 0; i < ngotos; ++i)
     {
       state_number dst = to_state[i];
-      const transitions *trans = states[dst]->transitions;
+      const state *s = states[dst];
 
+      {
+        closure (s->items, s->nitems);
+        for (size_t j = 0; j < nitemset; ++j)
+          {
+            item_number *sp1 = ritem + itemset[j];
+            if (trace_flag & trace_automaton)
+              {
+                item_print (sp1, NULL, stderr);
+                fprintf (stderr, "\n");
+              }
+            if (item_number_is_symbol_number (*(sp1-1))
+                && item_number_as_symbol_number (*(sp1-1)) == on_label[i]
+                && item_number_is_symbol_number (*sp1)
+                && ISTOKEN (item_number_as_symbol_number (*sp1)))
+              {
+                symbol_number sym = item_number_as_symbol_number (*sp1);
+                if (trace_flag & trace_automaton)
+                  {
+                    fprintf (stderr, "Add %s as shift1 for ", symbols[sym]->tag);
+                    goto_print (i, stderr);
+                    fprintf (stderr, "\n");
+                  }
+                bitset_set (goto_follows[i], sym);
+              }
+          }
+      }
+
+      const transitions *trans = s->transitions;
+      /* Shifts outgoing from DST. */
       int j;
       FOR_EACH_SHIFT (trans, j)
-        bitset_set (goto_follows[i], TRANSITION_SYMBOL (trans, j));
+        continue; //bitset_set (goto_follows[i], TRANSITION_SYMBOL (trans, j));
 
       /* Gotos outgoing from DST. */
       goto_number nedges = 0;
@@ -349,7 +388,8 @@ add_lookback_edge (state *s, rule const *r, goto_number gotono)
   int ri = state_reduction_find (s, r);
   if (ri == -1)
     {
-      fprintf (stderr, "Skipping add_lookback_edge\n");
+      if (trace_flag & trace_automaton)
+        fprintf (stderr, "******************* Skipping add_lookback_edge\n");
       //abort ();
     }
   else
@@ -382,13 +422,12 @@ build_relations (void)
           fprintf (stderr, "\n");
         }
       const state_number src = from_state[i];
-      const state_number dst = to_state[i];
-      symbol_number label = states[dst]->accessing_symbol;
+      const symbol_number label = on_label[i];
 
       /* Size of EDGE.  */
       int nedges = 0;
-      for (symbol_number var = ntokens; var < nsyms; ++var)
-        if (bitset_test (descendants[var], label))
+      for (symbol_number var = label; var == label; ++var)
+        if (true)
           {
             if (trace_flag & trace_automaton)
               {
@@ -406,10 +445,14 @@ build_relations (void)
                     rule_print (r, NULL, stderr);
                     fprintf (stderr, "\n");
                   }
-                if (feature_flag & feature_eliminate_chains
+                /* If we DON'T skip chain rules here, nullable.y
+                   passes properly. */
+                if (false
+                    && feature_flag & feature_eliminate_chains
                     && rule_useless_chain_p (r))
                   {
-                    fprintf (stderr, "rule disabled, skipping\n");
+                    if (trace_flag & trace_automaton)
+                      fprintf (stderr, "************************** rule disabled, skipping\n");
                     continue;
                   }
 
@@ -441,7 +484,7 @@ build_relations (void)
                     rule_print (r, NULL, stderr);
                     fputs (", path =", stderr);
                     for (int j = 0; j < length; ++j)
-                      fprintf (stderr, ", %d", path[j]);
+                      fprintf (stderr, "%s %d", j ? "," : "", path[j]);
                     fputc ('\n', stderr);
                   }
 
@@ -460,7 +503,7 @@ build_relations (void)
                     goto_number g = map_goto (path[p], sym);
                     if (g == GOTO_NUMBER_MAXIMUM)
                       {
-                        fprintf (stderr, "SKIPPED\n");
+                        fprintf (stderr, "*************** SKIPPED\n");
                         //abort ();
                       }
                     else

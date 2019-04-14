@@ -409,11 +409,14 @@ build_path (goto_number gotono,
   if (item_number_is_symbol_number (n))
     {
       symbol_number sym = item_number_as_symbol_number (n);
-      state *s = transitions_to (states[path[length-1]], sym);
-      if (!s)
-        return;
-      path[length++] = s->number;
-      build_path (gotono, r, path, length, edge, nedges);
+      state *s = states[path[length-1]];
+      transitions *trans = s->transitions;
+      for (int i = 0; i < trans->num; ++i)
+        if (bitset_test(descendants[sym], TRANSITION_SYMBOL (trans, i)))
+          {
+            path[length] = trans->states[i]->number;
+            build_path (gotono, r, path, length+1, edge, nedges);
+          }
     }
   else
     {

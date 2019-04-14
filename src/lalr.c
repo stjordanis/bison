@@ -399,6 +399,80 @@ add_lookback_edge (state *s, rule const *r, goto_number gotono)
     }
 }
 
+static void
+build_path (goto_number gotono,
+            rule const *r,
+            state_number *path, int length,
+            goto_number *edge, int *nedges)
+{
+  state *s = states[path[0]];
+  for (item_number const *rp = r->rhs; 0 <= *rp; rp++)
+    {
+      symbol_number sym = item_number_as_symbol_number (*rp);
+      s = transitions_to (s, sym);
+      if (!s)
+        return;
+      path[length++] = s->number;
+    }
+  if (trace_flag & trace_automaton)
+    {
+      goto_print (gotono, stderr);
+      fputs (": ", stderr);
+      rule_print (r, NULL, stderr);
+      fputs (", path =", stderr);
+      for (int j = 0; j < length; ++j)
+        fprintf (stderr, "%s %d", j ? "," : "", path[j]);
+      fputc ('\n', stderr);
+    }
+
+  /* S is the end of PATH.  */
+  if (!s->consistent)
+    add_lookback_edge (s, r, gotono);
+
+  /* Walk back PATH from penultimate to beginning.
+
+     The "0 <= p" part is actually useless: each rhs ends in a
+     rule number (for which ISVAR(...) is false), and there is
+     a sentinel (ritem[-1]=0) before the first rhs.  */
+  for (int p = length - 2; 0 <= p && ISVAR (r->rhs[p]); --p)
+    {
+      symbol_number sym = item_number_as_symbol_number (r->rhs[p]);
+      goto_number g = map_goto (path[p], sym);
+      if (g == GOTO_NUMBER_MAXIMUM)
+        {
+          fprintf (stderr, "*************** SKIPPED\n");
+          //abort ();
+        }
+      else
+        {
+          /* Insert G if not already in EDGE.
+             FIXME: linear search.  A bitset instead?  */
+          {
+            bool found = false;
+            for (int j = 0; !found && j < *nedges; ++j)
+              found = edge[j] == g;
+            if (!found)
+              {
+                if (trace_flag & trace_automaton)
+                  {
+                    fprintf (stderr, "new includes edge: ");
+                    goto_print (g, stderr);
+                    fprintf (stderr, " -> ");
+                    goto_print (gotono, stderr);
+                    fputs (" via ", stderr);
+                    rule_print (r, NULL, stderr);
+                    fprintf (stderr, "\n");
+                  }
+                assert (*nedges < ngotos);
+                edge[(*nedges)++] = g;
+              }
+          }
+        }
+      if (!nullable[sym - ntokens])
+        break;
+    }
+}
+
 
 /* Compute INCLUDES and LOOKBACK.  Corresponds to step E in Sec. 6 of
    [DeRemer 1982].  */
@@ -465,72 +539,9 @@ build_relations (void)
 
           /* Length of PATH.  */
           int length = 1;
-          for (item_number const *rp = r->rhs; 0 <= *rp; rp++)
-            {
-              symbol_number sym = item_number_as_symbol_number (*rp);
-              s = transitions_to (s, sym);
-              if (!s)
-                goto next_rule;
-              path[length++] = s->number;
-            }
-          if (trace_flag & trace_automaton)
-            {
-              goto_print (i, stderr);
-              fputs (": ", stderr);
-              rule_print (r, NULL, stderr);
-              fputs (", path =", stderr);
-              for (int j = 0; j < length; ++j)
-                fprintf (stderr, "%s %d", j ? "," : "", path[j]);
-              fputc ('\n', stderr);
-            }
-
-          /* S is the end of PATH.  */
-          if (!s->consistent)
-            add_lookback_edge (s, r, i);
-
-          /* Walk back PATH from penultimate to beginning.
-
-             The "0 <= p" part is actually useless: each rhs ends in a
-             rule number (for which ISVAR(...) is false), and there is
-             a sentinel (ritem[-1]=0) before the first rhs.  */
-          for (int p = length - 2; 0 <= p && ISVAR (r->rhs[p]); --p)
-            {
-              symbol_number sym = item_number_as_symbol_number (r->rhs[p]);
-              goto_number g = map_goto (path[p], sym);
-              if (g == GOTO_NUMBER_MAXIMUM)
-                {
-                  fprintf (stderr, "*************** SKIPPED\n");
-                  //abort ();
-                }
-              else
-                {
-                  /* Insert G if not already in EDGE.
-                     FIXME: linear search.  A bitset instead?  */
-                  {
-                    bool found = false;
-                    for (int j = 0; !found && j < nedges; ++j)
-                      found = edge[j] == g;
-                    if (!found)
-                      {
-                        if (trace_flag & trace_automaton)
-                          {
-                            fprintf (stderr, "new includes edge: ");
-                            goto_print (g, stderr);
-                            fprintf (stderr, " -> ");
-                            goto_print (i, stderr);
-                            fputs (" via ", stderr);
-                            rule_print (r, NULL, stderr);
-                            fprintf (stderr, "\n");
-                          }
-                        assert (nedges < ngotos);
-                        edge[nedges++] = g;
-                      }
-                  }
-                }
-              if (!nullable[sym - ntokens])
-                break;
-            }
-        next_rule:;
+          build_path (i, r,
+                      path, length,
+                      edge, &nedges);
         }
 
       if (trace_flag & trace_automaton)

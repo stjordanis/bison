@@ -422,121 +422,116 @@ build_relations (void)
           fprintf (stderr, "\n");
         }
       const state_number src = from_state[i];
-      const symbol_number label = on_label[i];
+      const symbol_number var = on_label[i];
 
       /* Size of EDGE.  */
       int nedges = 0;
-      for (symbol_number var = label; var == label; ++var)
-        if (true)
-          {
-            if (trace_flag & trace_automaton)
-              {
-                fprintf (stderr, "\n==== Looking at ");
-                goto_print (i, stderr);
-                fprintf (stderr, " with symbol %s instead of %s\n",
-                         symbols[var]->tag, symbols[label]->tag);
-              }
-            for (rule **rulep = derives[var - ntokens]; *rulep; ++rulep)
-              {
-                rule const *r = *rulep;
-                if (trace_flag & trace_automaton)
-                  {
-                    fprintf (stderr, "---- Looking at rule ");
-                    rule_print (r, NULL, stderr);
-                    fprintf (stderr, "\n");
-                  }
-                /* If we DON'T skip chain rules here, nullable.y
-                   passes properly. */
-                if (false
-                    && feature_flag & feature_eliminate_chains
-                    && rule_useless_chain_p (r))
-                  {
-                    if (trace_flag & trace_automaton)
-                      fprintf (stderr, "************************** rule disabled, skipping\n");
-                    continue;
-                  }
+      if (trace_flag & trace_automaton)
+        {
+          fprintf (stderr, "\n==== Looking at ");
+          goto_print (i, stderr);
+          fprintf (stderr, " with symbol %s\n", symbols[var]->tag);
+        }
+      for (rule **rulep = derives[var - ntokens]; *rulep; ++rulep)
+        {
+          rule const *r = *rulep;
+          if (trace_flag & trace_automaton)
+            {
+              fprintf (stderr, "---- Looking at rule ");
+              rule_print (r, NULL, stderr);
+              fprintf (stderr, "\n");
+            }
+          /* If we DON'T skip chain rules here, nullable.y
+             passes properly. */
+          if (false
+              && feature_flag & feature_eliminate_chains
+              && rule_useless_chain_p (r))
+            {
+              if (trace_flag & trace_automaton)
+                fprintf (stderr, "************************** rule disabled, skipping\n");
+              continue;
+            }
 
-                if (trace_flag & trace_automaton)
-                  {
-                    fputs ("build_relations for ", stderr);
-                    goto_print (i, stderr);
-                    fputs (": ", stderr);
-                    rule_print (r, NULL, stderr);
-                    fputc ('\n', stderr);
-                  }
-                state *s = states[src];
-                path[0] = s->number;  /* == SRC. */
+          if (trace_flag & trace_automaton)
+            {
+              fputs ("build_relations for ", stderr);
+              goto_print (i, stderr);
+              fputs (": ", stderr);
+              rule_print (r, NULL, stderr);
+              fputc ('\n', stderr);
+            }
+          state *s = states[src];
+          path[0] = s->number;  /* == SRC. */
 
-                /* Length of PATH.  */
-                int length = 1;
-                for (item_number const *rp = r->rhs; 0 <= *rp; rp++)
-                  {
-                    symbol_number sym = item_number_as_symbol_number (*rp);
-                    s = transitions_to (s, sym);
-                    if (!s)
-                      goto next;
-                    path[length++] = s->number;
-                  }
-                if (trace_flag & trace_automaton)
-                  {
-                    goto_print (i, stderr);
-                    fputs (": ", stderr);
-                    rule_print (r, NULL, stderr);
-                    fputs (", path =", stderr);
-                    for (int j = 0; j < length; ++j)
-                      fprintf (stderr, "%s %d", j ? "," : "", path[j]);
-                    fputc ('\n', stderr);
-                  }
+          /* Length of PATH.  */
+          int length = 1;
+          for (item_number const *rp = r->rhs; 0 <= *rp; rp++)
+            {
+              symbol_number sym = item_number_as_symbol_number (*rp);
+              s = transitions_to (s, sym);
+              if (!s)
+                goto next_rule;
+              path[length++] = s->number;
+            }
+          if (trace_flag & trace_automaton)
+            {
+              goto_print (i, stderr);
+              fputs (": ", stderr);
+              rule_print (r, NULL, stderr);
+              fputs (", path =", stderr);
+              for (int j = 0; j < length; ++j)
+                fprintf (stderr, "%s %d", j ? "," : "", path[j]);
+              fputc ('\n', stderr);
+            }
 
-                /* S is the end of PATH.  */
-                if (!s->consistent)
-                  add_lookback_edge (s, r, i);
+          /* S is the end of PATH.  */
+          if (!s->consistent)
+            add_lookback_edge (s, r, i);
 
-                /* Walk back PATH from penultimate to beginning.
+          /* Walk back PATH from penultimate to beginning.
 
-                   The "0 <= p" part is actually useless: each rhs ends in a
-                   rule number (for which ISVAR(...) is false), and there is
-                   a sentinel (ritem[-1]=0) before the first rhs.  */
-                for (int p = length - 2; 0 <= p && ISVAR (r->rhs[p]); --p)
+             The "0 <= p" part is actually useless: each rhs ends in a
+             rule number (for which ISVAR(...) is false), and there is
+             a sentinel (ritem[-1]=0) before the first rhs.  */
+          for (int p = length - 2; 0 <= p && ISVAR (r->rhs[p]); --p)
+            {
+              symbol_number sym = item_number_as_symbol_number (r->rhs[p]);
+              goto_number g = map_goto (path[p], sym);
+              if (g == GOTO_NUMBER_MAXIMUM)
+                {
+                  fprintf (stderr, "*************** SKIPPED\n");
+                  //abort ();
+                }
+              else
+                {
+                  /* Insert G if not already in EDGE.
+                     FIXME: linear search.  A bitset instead?  */
                   {
-                    symbol_number sym = item_number_as_symbol_number (r->rhs[p]);
-                    goto_number g = map_goto (path[p], sym);
-                    if (g == GOTO_NUMBER_MAXIMUM)
+                    bool found = false;
+                    for (int j = 0; !found && j < nedges; ++j)
+                      found = edge[j] == g;
+                    if (!found)
                       {
-                        fprintf (stderr, "*************** SKIPPED\n");
-                        //abort ();
+                        if (trace_flag & trace_automaton)
+                          {
+                            fprintf (stderr, "new includes edge: ");
+                            goto_print (g, stderr);
+                            fprintf (stderr, " -> ");
+                            goto_print (i, stderr);
+                            fputs (" via ", stderr);
+                            rule_print (r, NULL, stderr);
+                            fprintf (stderr, "\n");
+                          }
+                        assert (nedges < ngotos);
+                        edge[nedges++] = g;
                       }
-                    else
-                      {
-                        /* Insert G if not already in EDGE.
-                           FIXME: linear search.  A bitset instead?  */
-                        {
-                          bool found = false;
-                          for (int j = 0; !found && j < nedges; ++j)
-                            found = edge[j] == g;
-                          if (!found)
-                            {
-                              if (trace_flag & trace_automaton)
-                                {
-                                  fprintf (stderr, "new includes edge: ");
-                                  goto_print (g, stderr);
-                                  fprintf (stderr, " -> ");
-                                  goto_print (i, stderr);
-                                  fputs (" via ", stderr);
-                                  rule_print (r, NULL, stderr);
-                                  fprintf (stderr, "\n");
-                                }
-                              assert (nedges < ngotos);
-                              edge[nedges++] = g;
-                            }
-                        }
-                      }
-                    if (!nullable[sym - ntokens])
-                      break;
                   }
-              next:;
-              }
-          }
+                }
+              if (!nullable[sym - ntokens])
+                break;
+            }
+        next_rule:;
+        }
 
       if (trace_flag & trace_automaton)
         {

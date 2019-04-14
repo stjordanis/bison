@@ -253,6 +253,12 @@ initialize_goto_follows (void)
 
   for (goto_number i = 0; i < ngotos; ++i)
     {
+      if (trace_flag & trace_automaton)
+        {
+          fprintf (stderr, "initialize_goto_follows: ");
+          goto_print (i, stderr);
+          fputc ('\n', stderr);
+        }
       state_number dst = to_state[i];
       const state *s = states[dst];
 
@@ -268,17 +274,43 @@ initialize_goto_follows (void)
               }
             if (item_number_is_symbol_number (*(sp1-1))
                 && item_number_as_symbol_number (*(sp1-1)) == on_label[i]
-                && item_number_is_symbol_number (*sp1)
-                && ISTOKEN (item_number_as_symbol_number (*sp1)))
+                && item_number_is_symbol_number (*sp1))
               {
+                /* FIXME: here, we want to be able to iterate over the
+                   firsts of a symbol.  Currently the firsts (in the
+                   conventional sense) is not available in Bison:
+                   firsts in closure.c is something different.  */
                 symbol_number sym = item_number_as_symbol_number (*sp1);
-                if (trace_flag & trace_automaton)
+                if (ISTOKEN (sym))
                   {
-                    fprintf (stderr, "Add %s as shift1 for ", symbols[sym]->tag);
-                    goto_print (i, stderr);
-                    fprintf (stderr, "\n");
+                    if (trace_flag & trace_automaton)
+                      {
+                        fprintf (stderr, "Add %s as shift1 for ", symbols[sym]->tag);
+                        goto_print (i, stderr);
+                        fprintf (stderr, "\n");
+                      }
+                    bitset_set (goto_follows[i], sym);
                   }
-                bitset_set (goto_follows[i], sym);
+                else
+                  {
+                    bitset_iterator iter;
+                    rule_number r;
+                    BITSET_FOR_EACH (iter, FDERIVES (sym), r, 0)
+                      {
+                        if (item_number_is_symbol_number (rules[r].rhs[0])
+                            && ISTOKEN (rules[r].rhs[0]))
+                          {
+                            if (trace_flag & trace_automaton)
+                              {
+                                fprintf (stderr, "Add %s as shift2 for ",
+                                         symbols[rules[r].rhs[0]]->tag);
+                                goto_print (i, stderr);
+                                fprintf (stderr, "\n");
+                              }
+                            bitset_set (goto_follows[i], rules[r].rhs[0]);
+                          }
+                      }
+                  }
               }
           }
       }
@@ -287,7 +319,7 @@ initialize_goto_follows (void)
       /* Shifts outgoing from DST. */
       int j;
       FOR_EACH_SHIFT (trans, j)
-        bitset_set (goto_follows[i], TRANSITION_SYMBOL (trans, j));
+        continue; // bitset_set (goto_follows[i], TRANSITION_SYMBOL (trans, j));
 
       /* Gotos outgoing from DST. */
       goto_number nedges = 0;

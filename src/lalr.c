@@ -555,7 +555,8 @@ build_relations (void)
               rule_print (r, NULL, stderr);
               fprintf (stderr, "\n");
             }
-          if (feature_flag & feature_eliminate_chains
+          if (false
+              && feature_flag & feature_eliminate_chains
               && rule_useless_chain_p (r))
             {
               if (trace_flag & trace_automaton)

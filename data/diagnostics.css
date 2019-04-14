@@ -8,3 +8,4 @@
 .note      { color: cyan; }
 /* Semantic values in Bison's parser traces.  */
 .value     { color: green; }
+.trace0    { color: green; }

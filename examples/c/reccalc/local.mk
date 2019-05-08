@@ -15,16 +15,20 @@
 
 reccalcdir = $(docdir)/%D%
 
-## ------ ##
-## Calc.  ##
-## ------ ##
+## --------- ##
+## RecCalc.  ##
+## --------- ##
 
 check_PROGRAMS += %D%/reccalc
 TESTS += %D%/reccalc.test
 EXTRA_DIST += %D%/reccalc.test %D%/scan.l
 nodist_%C%_reccalc_SOURCES = %D%/parse.y %D%/scan.h %D%/scan.c
-BUILT_SOURCES += $(nodist_%C%_reccalc_SOURCES)
 %D%/parse.c: $(dependencies)
+# Make sure parse.h is created before compiling the scanner.  Don't
+# use BUILT_SOURCES, since we want to use this bison.  Refer to
+# parse.c, not parse.h, since Automake's dependencies don't see that
+# parse.h comes from parse.y.
+%C%_reccalc_DEPENDENCIES = %D%/parse.c
 
 # Tell Make that parse.o depends on scan.h, so that scan.h is built
 # before parse.o.  Obfuscate the name of the target, otherwise
